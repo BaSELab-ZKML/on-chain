@@ -1,10 +1,9 @@
-// 상단 import 부분 수정!
 const { expect } = require("chai");
 const hre = require("hardhat");
 
-// utils는 별도로 임포트
-const { keccak256, toUtf8Bytes } = require("@ethersproject/keccak256");
-const { toUtf8Bytes: toUtf8 } = require("@ethersproject/strings"); // v6 이상에서 안전
+// Import keccak256 and utf8 conversion utilities
+const { keccak256 } = require("@ethersproject/keccak256");
+const { toUtf8Bytes: toUtf8 } = require("@ethersproject/strings");
 
 describe("ZKMLPublicValsStorage", function () {
   let ZKMLPublicValsStorage, contract;
@@ -12,66 +11,66 @@ describe("ZKMLPublicValsStorage", function () {
   const requiredApprovals = 2;
 
   beforeEach(async () => {
-    [approver1, approver2, approver3, attacker] = await ethers.getSigners();
+    [approver1, approver2, approver3, attacker] = await hre.ethers.getSigners();
 
-  const ZKMLPublicValsStorage = await ethers.getContractFactory("ZKMLPublicValsStorage");
-  contract = await ZKMLPublicValsStorage.deploy(
-    [approver1.address, approver2.address, approver3.address],
-    requiredApprovals
-  );
+    const ZKMLPublicValsStorage = await hre.ethers.getContractFactory("ZKMLPublicValsStorage");
+    contract = await ZKMLPublicValsStorage.deploy(
+      [approver1.address, approver2.address, approver3.address],
+      requiredApprovals
+    );
 
-  await contract.waitForDeployment(); // ✅ 요걸로 대체
-});
+    await contract.waitForDeployment(); // Replaces deprecated `.deployed()`
+  });
 
-  it("approvers 목록이 올바르게 설정되어야 함", async () => {
+  it("should correctly store the list of approvers", async () => {
     const result = await contract.getApprovers();
     expect(result).to.include.members([approver1.address, approver2.address, approver3.address]);
   });
 
-  it("승인 없이 public_vals 저장이 되어선 안됨", async () => {
-    const hash = keccak256(toUtf8("public_vals_1")); // ✅ 정확한 방식
+  it("should not store public_vals without any approval", async () => {
+    const hash = keccak256(toUtf8("public_vals_1"));
     const stored = await contract.isStored(hash);
     expect(stored).to.equal(false);
   });
 
-  it("2명의 approver가 approve하면 저장되어야 함", async () => {
-const hash = keccak256(toUtf8("public_vals_2")); // ✅ 정확한 방식
+  it("should store public_vals after 2 valid approvals", async () => {
+    const hash = keccak256(toUtf8("public_vals_2"));
 
     await contract.connect(approver1).approveAndStore(hash);
     let stored = await contract.isStored(hash);
-    expect(stored).to.equal(false); // 아직 1명 승인
+    expect(stored).to.equal(false); // Only 1 approval so far
 
     await contract.connect(approver2).approveAndStore(hash);
     stored = await contract.isStored(hash);
-    expect(stored).to.equal(true); // 2명 승인 완료
+    expect(stored).to.equal(true); // 2 approvals complete
   });
 
-  it("중복 승인은 거부되어야 함", async () => {
-const hash = keccak256(toUtf8("public_vals_3")); // ✅ 정확한 방식
+  it("should reject duplicate approvals from the same approver", async () => {
+    const hash = keccak256(toUtf8("public_vals_3"));
 
     await contract.connect(approver1).approveAndStore(hash);
 
-    // 중복 승인 시 revert 발생
+    // Should revert on duplicate approval
     await expect(
       contract.connect(approver1).approveAndStore(hash)
     ).to.be.revertedWith("Already approved");
   });
 
-  it("approver가 아닌 사용자는 승인할 수 없어야 함", async () => {
-const hash = keccak256(toUtf8("public_vals_4")); // ✅ 정확한 방식
+  it("should reject approval from non-approver", async () => {
+    const hash = keccak256(toUtf8("public_vals_4"));
 
     await expect(
       contract.connect(attacker).approveAndStore(hash)
     ).to.be.revertedWith("Not an approver");
   });
 
-  it("이미 저장된 public_vals는 다시 저장할 수 없어야 함", async () => {
-const hash = keccak256(toUtf8("public_vals_5")); // ✅ 정확한 방식
+  it("should reject additional approvals after public_vals is stored", async () => {
+    const hash = keccak256(toUtf8("public_vals_5"));
 
     await contract.connect(approver1).approveAndStore(hash);
     await contract.connect(approver2).approveAndStore(hash);
 
-    // 세 번째 approver가 approve 시도 → 이미 저장됨
+    // A third approver trying to approve again should be rejected
     await expect(
       contract.connect(approver3).approveAndStore(hash)
     ).to.be.revertedWith("Already stored");
